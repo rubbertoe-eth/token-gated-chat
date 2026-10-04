@@ -11,9 +11,9 @@ export default function Home() {
       }}
     >
       <div>
-        <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>🦞</div>
-        <h1 style={{ fontSize: "1.5rem", color: "#ff6b6b", marginBottom: "0.5rem" }}>$CLAWD Token Gate</h1>
-        <p style={{ color: "#888" }}>Message <a href="https://t.me/ClawdChatTGBot" style={{ color: "#ff6b6b" }}>@ClawdChatTGBot</a> on Telegram to get started.</p>
+        <div style={{ fontSize: "4rem", marginBottom: "1rem" }}></div>
+        <h1 style={{ fontSize: "1.5rem", color: "#ff6b6b", marginBottom: "0.5rem" }}>Brain Armstrong Token Gate</h1>
+        <p style={{ color: "#888" }}>Message <a href="https://t.me/BrainArmWhaleBot" style={{ color: "#ff6b6b" }}>@BrainArmWhaleBot</a> on Telegram to get started.</p>
       </div>
     </div>
   );

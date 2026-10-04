@@ -1,77 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
-import { SiweMessage } from "siwe";
-import { verifyNonce } from "~/lib/nonce";
-import { checkBalance } from "~/lib/token";
-import { saveVerifiedUser } from "~/lib/kv-store";
-
-const HARDCODED_INVITE_LINK = process.env.TELEGRAM_INVITE_LINK;
-if (!HARDCODED_INVITE_LINK) {
-  console.error("FATAL: TELEGRAM_INVITE_LINK env var is not set — invite links will not work");
-}
-
-async function sendTelegramInvite(telegramUserId: string, wallet: string) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken || !HARDCODED_INVITE_LINK) return null;
-
+import { NextRequest,NextResponse } from 'next/server';
+import { SiweMessage } from 'siwe';
+import { consumeNonce } from '~/lib/nonce';
+import { checkBalance } from '~/lib/token';
+import { saveVerifiedUser } from '~/lib/kv-store';
+import { invite,telegram } from '~/lib/telegram';
+export async function POST(req:NextRequest) {
+  let verified:SiweMessage;
   try {
-    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: Number(telegramUserId),
-        text: `🦞 ✅ Verified! Your wallet holds $CLAWD.\n\nHere's your invite to the holders chat:\n👉 ${HARDCODED_INVITE_LINK}\n\nWelcome aboard!`,
-      }),
-    });
-
-    return HARDCODED_INVITE_LINK;
-  } catch (err: any) {
-    console.error("Telegram API error:", err.message);
-    return null;
-  }
-}
-
-export async function POST(req: NextRequest) {
+    const {message,signature}=await req.json();
+    const origin=new URL(process.env.WEB_URL!);
+    const siwe=new SiweMessage(message);
+    if (siwe.chainId!==8453 || siwe.uri!==origin.origin) throw new Error('Wrong origin');
+    const result=await siwe.verify({signature,domain:origin.host});
+    verified=result.data;
+  } catch { return NextResponse.json({error:'Invalid wallet signature or verification origin.'},{status:400}); }
   try {
-    const { message, signature } = await req.json();
-    if (!message || !signature) {
-      return NextResponse.json({ error: "Missing message or signature" }, { status: 400 });
-    }
-
-    const siweMessage = new SiweMessage(message);
-    const { data: verified } = await siweMessage.verify({ signature });
-
-    const nonceData = verifyNonce(verified.nonce);
-    if (!nonceData) {
-      return NextResponse.json({ error: "Invalid or expired nonce" }, { status: 400 });
-    }
-
-    const hasBalance = await checkBalance(verified.address);
-    if (!hasBalance) {
-      return NextResponse.json(
-        {
-          error: "Insufficient $CLAWD balance. You need at least 10,000,000 $CLAWD on Base.",
-          address: verified.address,
-        },
-        { status: 403 },
-      );
-    }
-
-    // Save wallet mapping for periodic balance rechecks
-    await saveVerifiedUser(nonceData.tg, verified.address);
-
-    const inviteLink = await sendTelegramInvite(nonceData.tg, verified.address);
-
-    console.log(`✅ Verified: tg=${nonceData.tg} wallet=${verified.address}`);
-
-    return NextResponse.json({
-      success: true,
-      address: verified.address,
-      telegramUserId: nonceData.tg,
-      inviteSent: !!inviteLink,
-      inviteLink: HARDCODED_INVITE_LINK,
-    });
-  } catch (err: any) {
-    console.error("Verification error:", err.message);
-    return NextResponse.json({ error: "Verification failed: " + err.message }, { status: 400 });
-  }
+    const session=await consumeNonce(verified.nonce);
+    if (!session || verified.statement!==`Verify Brain Armstrong ownership for Telegram user ${session.tg}`)
+      return NextResponse.json({error:'Link expired or used. Send /start for a new one.'},{status:400});
+    if (!await checkBalance(verified.address)) return NextResponse.json({error:'Hold MORE than 10,000,000 Brain Armstrong tokens on Base. Send /start to retry.'},{status:403});
+    if (!await saveVerifiedUser(session.tg,verified.address)) return NextResponse.json({error:'Wallet already linked to another Telegram account.'},{status:409});
+    const inviteLink=await invite(session.tg);
+    await telegram('sendMessage',{chat_id:Number(session.tg),text:`Over 10M? Those are some heavy bags, señor. Cojones confirmed. You're in.\n\n${inviteLink}`}).catch(()=>{});
+    return NextResponse.json({success:true,inviteLink});
+  } catch { return NextResponse.json({error:'Service temporarily unavailable. Send /start for a new link.'},{status:503}); }
 }

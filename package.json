@@ -2,12 +2,14 @@
   "name": "token-gated-chat",
   "version": "0.1.0",
   "private": true,
-  "description": "Token-gated Telegram bouncer bot for $CLAWD holders",
+  "description": "Brain Armstrong holders gate on Base",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "bot": "node bot/index.js"
+    "bot": "node scripts/legacy-disabled.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "setup:telegram": "node --env-file=.env.local scripts/setup-telegram.mjs"
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.10",

@@ -7,8 +7,7 @@ import { useState, useEffect, Suspense } from "react";
 
 function VerifyInner() {
   const searchParams = useSearchParams();
-  const tg = searchParams.get("tg");
-  const chat = searchParams.get("chat");
+  const ticket = searchParams.get("ticket");
 
   const { address, isConnected, connector } = useAccount();
   const { signMessageAsync } = useSignMessage();
@@ -38,18 +37,20 @@ function VerifyInner() {
     // If we can't determine the wallet, do nothing — WC push notification should alert them
   }
 
-  const missingParams = !tg || !chat;
+  const missingParams = !ticket;
 
   async function verify() {
-    if (!address || !tg || !chat) return;
+    if (!address || !ticket) return;
 
     try {
       setStatus("signing");
       setMessage("Getting nonce...");
 
       // Get nonce
-      const nonceRes = await fetch(`/api/nonce?tg=${tg}&chat=${chat}`);
-      const { nonce } = await nonceRes.json();
+      const nonceRes = await fetch(`/api/nonce?ticket=${encodeURIComponent(ticket)}`, { cache: "no-store" });
+      const nonceData = await nonceRes.json();
+      if (!nonceRes.ok) throw new Error(nonceData.error || "Unable to verify");
+      const { nonce, telegramUserId: tg } = nonceData;
 
       // Build SIWE message
       const domain = window.location.host;
@@ -58,7 +59,7 @@ function VerifyInner() {
         `${domain} wants you to sign in with your Ethereum account:`,
         address,
         "",
-        `Verify CLAWD token ownership for Telegram user ${tg}`,
+        `Verify Brain Armstrong ownership for Telegram user ${tg}`,
         "",
         `URI: ${origin}`,
         `Version: 1`,
@@ -93,8 +94,8 @@ function VerifyInner() {
         setStatus("success");
         setInviteLink(result.inviteLink || null);
         setMessage(result.inviteLink
-          ? `✅ Verified! Here's your invite link 👇`
-          : `✅ Verified! Check your Telegram DMs from @ClawdChatTGBot 🦞`);
+          ? `Verified! Here's your invite link`
+          : `Verified! Check your Telegram DMs from @BrainArmWhaleBot `);
       } else {
         setStatus("error");
         setMessage(result.error || "Verification failed");
@@ -116,10 +117,10 @@ function VerifyInner() {
       }}
     >
       <div style={{ maxWidth: 420, width: "100%", textAlign: "center" }}>
-        <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>🦞</div>
-        <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem", color: "#ff6b6b" }}>$CLAWD Token Gate</h1>
+        <img src="/bouncer.jpg" alt="Brain Armstrong bouncer" style={{width:"100%",borderRadius:16,marginBottom:20}} />
+        <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem", color: "#ff6b6b" }}>Brain Armstrong Token Gate</h1>
         <p style={{ color: "#888", marginBottom: "2rem", fontSize: "0.9rem" }}>
-          Connect your wallet and verify you hold at least 10M $CLAWD on Base to join the chat
+          Connect your wallet and verify you hold over 10M Brain Armstrong on Base to join the chat. Sign a message only; no payment or token approval.
         </p>
 
         {missingParams ? (
@@ -147,7 +148,7 @@ function VerifyInner() {
                   width: "100%",
                 }}
               >
-                {status === "signing" || status === "verifying" ? "Verifying..." : "🔐 Verify $CLAWD Holdings"}
+                {status === "signing" || status === "verifying" ? "Verifying..." : "Verify Brain Armstrong Holdings"}
               </button>
             )}
 
@@ -186,7 +187,7 @@ function VerifyInner() {
                   textDecoration: "none",
                 }}
               >
-                👉 Join the $CLAWD Chat
+                Join the Brain Armstrong Chat
               </a>
             )}
           </>
@@ -202,7 +203,7 @@ const infoStyle = { background: "#15152d", color: "#6b6bff", border: "1px solid 
 
 export default function VerifyPage() {
   return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontSize: "4rem" }}>🦞</div></div>}>
+    <Suspense fallback={<div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontSize: "4rem" }}></div></div>}>
       <VerifyInner />
     </Suspense>
   );

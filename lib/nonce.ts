@@ -1,30 +1,24 @@
-import crypto from "crypto";
-
-const SECRET = process.env.NONCE_SECRET || "clawd-bouncer-default-secret-change-me";
-
-export function createNonce(telegramUserId: string, chatId: string): string {
-  const random = crypto.randomBytes(16).toString("hex");
-  const payload = JSON.stringify({ tg: telegramUserId, chat: chatId, ts: Date.now(), r: random });
-  const encoded = Buffer.from(payload).toString("base64url");
-  const hmac = crypto.createHmac("sha256", SECRET).update(encoded).digest("hex").slice(0, 16);
-  // SIWE nonces must be alphanumeric only — no dots or special chars
-  return `${encoded}${hmac}`;
+import crypto from 'crypto';
+import { kv } from '@vercel/kv';
+import { validIdentity } from '../shared/gate.mjs';
+export interface Session { tg: string; chat: string; expiresAt: number; ticket?: string }
+export async function createTicket(tg: string, chat: string) {
+  const ticket=crypto.randomBytes(32).toString('hex');
+  await kv.set(`gate:ticket:${ticket}`,{tg,chat,expiresAt:Date.now()+600_000},{ex:600});
+  return ticket;
 }
-
-export function verifyNonce(nonce: string): { tg: string; chat: string; ts: number } | null {
-  // HMAC is always last 16 hex chars, encoded is the rest
-  const hmac = nonce.slice(-16);
-  const encoded = nonce.slice(0, -16);
-  if (!encoded || !hmac) return null;
-
-  const expected = crypto.createHmac("sha256", SECRET).update(encoded).digest("hex").slice(0, 16);
-  if (hmac !== expected) return null;
-
-  try {
-    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString());
-    if (Date.now() - payload.ts > 10 * 60 * 1000) return null;
-    return payload;
-  } catch {
-    return null;
-  }
+export async function createNonce(ticket: string) {
+  if (!/^[a-f0-9]{64}$/.test(ticket)) return null;
+  const session=await kv.get<Session>(`gate:ticket:${ticket}`);
+  if (!validIdentity(session,process.env.TELEGRAM_CHAT_ID)) return null;
+  const nonce=crypto.randomBytes(32).toString('hex');
+  await kv.set(`gate:nonce:${nonce}`,{...session,ticket},{ex:600});
+  return {nonce,session:session!};
+}
+export async function consumeNonce(nonce: string) {
+  if (!/^[a-f0-9]{64}$/.test(nonce)) return null;
+  const session=await kv.getdel<Session>(`gate:nonce:${nonce}`);
+  if (!validIdentity(session,process.env.TELEGRAM_CHAT_ID)) return null;
+  const ticket=await kv.getdel<Session>(`gate:ticket:${session!.ticket}`);
+  return validIdentity(ticket,process.env.TELEGRAM_CHAT_ID)?session:null;
 }

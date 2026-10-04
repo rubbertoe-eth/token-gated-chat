@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { ClientProviders } from "./client-providers";
 
 export const metadata: Metadata = {
-  title: "$CLAWD Token Gate",
-  description: "Verify your $CLAWD holdings to join the holders chat",
+  title: "Brain Armstrong Token Gate",
+  description: "Verify your Brain Armstrong holdings to join the holders chat",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

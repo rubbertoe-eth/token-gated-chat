@@ -1,115 +1,47 @@
-# 🦞 $CLAWD Token-Gated Telegram Chat
+# Brain Armstrong Telegram gate
 
-A bouncer bot (@ClawdChatTGBot) that gates Telegram group access to $CLAWD token holders on Base.
-
-## How It Works
-
-1. User DMs @ClawdChatTGBot → sends `/start`
-2. Bot replies with a verification link
-3. User opens the link, connects wallet via RainbowKit, signs a SIWE message
-4. Server checks $CLAWD balance on Base — if sufficient, user gets a single-use invite link
-5. Unverified users who join the group are kicked immediately
-6. Periodic re-checks (every 4 hours via Vercel cron) kick members who sell their tokens
+Cojones Checker (@BrainArmWhaleBot) grants access to one Telegram account per verified wallet holding **strictly more than 10,000,000** Brain Armstrong tokens on Base. Contract: `0xb2000000000000000000005a0c125da6cf531d01` (18 decimals).
 
 ## Architecture
 
-Two components:
+Deploy this Next.js app to Vercel and attach Upstash Redis. Telegram calls `/api/telegram` using an authenticated webhook; no separate polling worker is needed. Do not run the original polling bot or Express server. The legacy scripts are not part of this deployment.
 
-### 1. Telegram Bot (`bot/index.js`)
-- Long-running Node.js process using [grammY](https://grammy.dev/)
-- Handles `/start`, `/status` commands
-- Watches for new group members → kicks unverified joiners
-- Polls for newly verified users → sends invite links
-- Runs periodic balance re-checks
-- **Runs locally via macOS `launchd`** — auto-starts on login, auto-restarts on crash
+Members DM `/start`, receive a private expiring ticket, connect their wallet, and sign a SIWE message. The server checks Base holdings and provides a 10-minute join-request invite. Entry is approved only after checking the requesting Telegram account and its current balance. A shared link alone grants no access. SIWE tickets and nonces are single-use; the expected domain, URI, group, and chain are enforced. RPC failures preserve existing memberships and leave joins pending.
 
-### 2. Web App (Next.js on Vercel)
-- Wallet verification UI (RainbowKit + SIWE)
-- Stores verified users in Upstash Redis (KV)
-- `/api/recheck` cron route — runs every 4 hours to kick members who sold
+## Telegram group
 
-```
-┌─────────────┐     ┌──────────────┐     ┌───────────────┐
-│  Telegram    │────▶│  Bot         │────▶│  Local JSON   │
-│  Group       │     │  (grammY)    │     │  + Upstash KV │
-└─────────────┘     └──────────────┘     └───────┬───────┘
-                                                  │
-┌─────────────┐     ┌──────────────┐              │
-│  User's      │────▶│  Vercel App  │──────────────┘
-│  Browser     │     │  (Next.js)   │
-└─────────────┘     └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │  Base RPC    │
-                    │  (balanceOf) │
-                    └──────────────┘
-```
+Use a **private supergroup**. The supplied ID `-3812739644` appears to be a basic group; conversion changes its ID. Obtain and configure the new ID after conversion. The setup script checks group type and permissions before registering the webhook. Bot needs Invite Users and Ban Users. Keep all ordinary member invitation permissions disabled, revoke old direct-join links, and use bot-issued join-request links. Admins can bypass the gate by adding or approving people, so reserve admin roles for trusted operators.
 
-## Setup
+Telegram bots cannot enumerate all pre-existing members. Ask current members to verify before launch; the periodic job only checks registered wallets. Administrators and owners are not removable by this bot. Existing unverified members must be reviewed manually.
 
-1. **Clone & install:**
-   ```bash
-   git clone https://github.com/clawdbotatg/token-gated-chat
-   cd token-gated-chat
-   npm install
-   ```
+## Environment
 
-2. **Create a Telegram bot** via [@BotFather](https://t.me/BotFather)
-   - Give it `can_restrict_members` permission in your group
+Copy `.env.example` to `.env.local` for local setup, or use Vercel environment settings for deployment:
 
-3. **Configure:**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your values (see .env.example for all options)
-   ```
+- `TELEGRAM_BOT_TOKEN`: BotFather credential. Keep private.
+- `TELEGRAM_CHAT_ID`: final supergroup ID.
+- `WEB_URL`: exact production HTTPS origin, without a trailing slash.
+- `TELEGRAM_WEBHOOK_SECRET`: random secret, at least 32 characters, using letters, digits, `_` or `-`.
+- `CRON_SECRET`: separate random secret for scheduled rechecks.
+- `KV_REST_API_URL`, `KV_REST_API_TOKEN`: Upstash Redis REST credentials. If integration provides `UPSTASH_REDIS_REST_*`, map the matching values to these variable names.
+- `BASE_RPC_URL`: production Base RPC endpoint; public RPC is fine for initial testing.
+- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`: your own WalletConnect/Reown project ID; allowlist the production domain.
 
-4. **Run the bot:**
-   ```bash
-   npm run bot
-   ```
+Create secrets locally with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Never commit `.env.local`, bot tokens, or Redis credentials.
 
-5. **Run the web app:**
-   ```bash
-   npm run dev
-   ```
+## Deployment and activation
 
-   Or deploy to Vercel and pull env vars with `vercel env pull`.
+1. Import this repository into Vercel, connect Redis, and set environment variables.
+2. Deploy; this repository includes a daily recheck at 09:00 UTC. Vercel Hobby permits daily cron only. On a plan supporting frequent cron, change schedule to `0 */4 * * *` for checks every four hours. Sales may preserve access until the next successful recheck; this is not continuous monitoring.
+3. On your own computer, run `npm ci`, then `npm run setup:telegram` with `.env.local` configured. The script verifies the bot, supergroup, rights, and webhook endpoint, then registers the webhook and bot commands. It prints no secrets.
+4. Test with a holder wallet and a non-holder wallet before sharing the bot publicly.
 
-## Running as a Persistent Service (macOS)
+The successful DM uses: “Over 10M? Those are some heavy bags, señor. Cojones confirmed. You're in.”
 
-The bot needs to stay running for Telegram polling. On macOS, use a launchd agent:
+## Checks
 
-```bash
-# Plist goes in ~/Library/LaunchAgents/com.clawd.bouncer-bot.plist
-# Key settings:
-#   RunAtLoad: true (starts on login)
-#   KeepAlive: true (restarts on crash)
-#   WorkingDirectory: this repo
-#   ProgramArguments: node bot/index.js
-```
+`npm test` checks the exact threshold boundary, authentication with unset secrets, and session expiry/group/identity validation. `npm run build` checks the production app. Live Telegram, wallet, RPC, and Redis testing requires configured credentials.
 
-Load it:
-```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.clawd.bouncer-bot.plist
-```
+## Limits
 
-Check logs:
-```bash
-tail -f bot.log
-tail -f bot-error.log
-```
-
-## Token
-
-- **$CLAWD**: `0x9f86dB9fc6f7c9408e8Fda3Ff8ce4e78ac7a6b07` (ERC-20 on Base)
-- Minimum balance: configurable via `CLAWD_MIN_BALANCE` env var (in wei)
-
-## Stack
-
-- **Bot**: [grammY](https://grammy.dev/) (Telegram bot framework)
-- **Web**: Next.js + [RainbowKit](https://www.rainbowkit.com/)
-- **Auth**: EIP-4361 (SIWE)
-- **Chain**: Base (via Alchemy RPC)
-- **Storage**: Upstash Redis (KV) + local JSON fallback
-
-<!-- deploy trigger Sun Feb 15 21:45:37 MST 2026 -->
+Designed for a small initial group. Rechecks currently scan registered wallets sequentially in a 60-second function. Larger groups need a queued/batched recheck before relying on removals. Redis/RPC outages delay access decisions and removals; watch hosting logs and cron results. Telegram webhook retries can produce duplicate informational DMs or links, but do not grant unverified entry.
